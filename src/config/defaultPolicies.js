@@ -1,0 +1,47 @@
+const defaultPolicies = [
+  {
+    id: "public-ip-fixed",
+    name: "Public IP fixed window",
+    algorithm: "fixed_window",
+    scope: "ip",
+    endpointPattern: "/api/public",
+    limit: 100,
+    windowSec: 60,
+    enabled: true,
+  },
+  {
+    id: "strict-ip-sliding",
+    name: "Strict sliding window",
+    algorithm: "sliding_window",
+    scope: "ip",
+    endpointPattern: "/api/strict",
+    limit: 10,
+    windowSec: 60,
+    enabled: true,
+  },
+  {
+    id: "premium-api-token",
+    name: "Premium API key token bucket",
+    algorithm: "token_bucket",
+    scope: "apiKey",
+    endpointPattern: "/api/premium",
+    limit: 1000,
+    windowSec: 60,
+    capacity: 1000,
+    refillRate: 1000 / 60,
+    enabled: true,
+  },
+  {
+    id: "default-ip-leaky",
+    name: "Global leaky bucket",
+    algorithm: "leaky_bucket",
+    scope: "ip",
+    endpointPattern: "/api/*",
+    limit: 300,
+    windowSec: 60,
+    capacity: 300,
+    enabled: true,
+  },
+];
+
+module.exports = { defaultPolicies };

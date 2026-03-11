@@ -1,1 +1,38 @@
 *.env
+node_modules/
+npm-debug.log*
+.DS_Store
+package-lock.json.bak
+
+# Logs
+logs/
+*.log
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime and cache
+pids/
+*.pid
+*.seed
+*.pid.lock
+.cache/
+
+# Test and coverage artifacts
+coverage/
+.nyc_output/
+
+# Build output
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE and OS files
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

@@ -3,16 +3,23 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const apiRoutes = require("./routes/api");
+const { metricsService } = require("./middleware/rateLimiter");
 
 const PORT = process.env.PORT || 3000;
 const app = express();
 
+app.set("trust proxy", true);
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
 
 // Mount API routes
 app.use("/api", apiRoutes);
+
+app.get("/metrics", async (req, res) => {
+  const body = await metricsService.prometheus();
+  res.type("text/plain").send(body);
+});
 
 // Root — serve dashboard
 app.get("/", (req, res) => {

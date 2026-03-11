@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "test": "node --test \"tests/**/*.test.js\"",
     "load-test": "node scripts/loadTest.js",
+    "benchmark": "node scripts/loadTest.js --rps 1000 --duration 30 --concurrency 80 --ips 20",
     "docker:up": "docker-compose up --build",
     "docker:down": "docker-compose down"
   },
