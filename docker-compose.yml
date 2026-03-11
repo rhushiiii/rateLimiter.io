@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: rl-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── App (single instance) ──────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: rl-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+      - PORT=3000
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── App (scale demo: 3 instances behind Nginx) ─────────────────────────────
+  app-1:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: ["scaled"]
+
+  app-2:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: ["scaled"]
+
+  app-3:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: ["scaled"]
+
+  # ── Nginx (load balancer for scaled mode) ──────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on: [app-1, app-2, app-3]
+    profiles: ["scaled"]
+
+volumes:
+  redis-data:

@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rate Limiter Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --border: #1e1e2e;
+    --accent: #00ff9d;
+    --accent2: #ff4060;
+    --accent3: #7c6af7;
+    --text: #e8e8f0;
+    --muted: #555570;
+    --card: #13131f;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(rgba(0,255,157,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,157,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+
+  .logo {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .logo-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-title span { color: var(--accent); }
+
+  .logo-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .status-bar {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .status-dot.offline { background: var(--accent2); box-shadow: 0 0 10px var(--accent2); animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.85); }
+  }
+
+  .status-text { font-size: 12px; color: var(--muted); }
+  .last-update { font-size: 11px; color: var(--muted); }
+
+  /* Metric cards */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .metric-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--card-accent, var(--accent3));
+  }
+
+  .metric-card:hover { border-color: var(--card-accent, var(--accent3)); }
+
+  .metric-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+  }
+
+  .metric-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--card-accent, var(--text));
+  }
+
+  .metric-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .card-allowed { --card-accent: var(--accent); }
+  .card-blocked { --card-accent: var(--accent2); }
+  .card-rate { --card-accent: var(--accent3); }
+  .card-rps { --card-accent: #f0a500; }
+
+  /* Charts */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .chart-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+
+  .chart-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: var(--border);
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .chart-container { height: 200px; position: relative; }
+  .donut-container { height: 200px; position: relative; }
+
+  /* Bottom section */
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .table-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .endpoint-list { margin-top: 12px; }
+
+  .endpoint-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    font-size: 12px;
+  }
+
+  .endpoint-row:last-child { border-bottom: none; }
+
+  .endpoint-name {
+    flex: 1;
+    color: var(--accent3);
+    font-size: 11px;
+  }
+
+  .endpoint-bar-wrap {
+    flex: 2;
+    background: var(--border);
+    border-radius: 2px;
+    height: 4px;
+    overflow: hidden;
+  }
+
+  .endpoint-bar {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 0.5s ease;
+  }
+
+  .endpoint-count { color: var(--muted); min-width: 50px; text-align: right; }
+
+  /* Simulator */
+  .sim-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .sim-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .sim-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .sim-label { font-size: 11px; color: var(--muted); width: 120px; flex-shrink: 0; }
+
+  .sim-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .sim-input:focus { border-color: var(--accent3); }
+
+  .sim-select {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .btn-primary:hover { background: #00e08a; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-primary:disabled { background: var(--muted); cursor: not-allowed; transform: none; }
+
+  .sim-output {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    min-height: 80px;
+    max-height: 160px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+
+  .log-allowed { color: var(--accent); }
+  .log-blocked { color: var(--accent2); }
+  .log-error { color: #f0a500; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .charts-grid, .bottom-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-title">RATE<span>GUARD</span></div>
+      <div class="logo-sub">Distributed Rate Limiter · Token Bucket</div>
+    </div>
+    <div class="status-bar">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-text" id="statusText">CONNECTING</span>
+      <span class="last-update" id="lastUpdate">–</span>
+    </div>
+  </header>
+
+  <!-- Metric Cards -->
+  <div class="metrics-grid">
+    <div class="metric-card card-allowed">
+      <div class="metric-label">Total Allowed</div>
+      <div class="metric-value" id="metricAllowed">–</div>
+      <div class="metric-sub" id="metricAllowedPct">–% pass rate</div>
+    </div>
+    <div class="metric-card card-blocked">
+      <div class="metric-label">Total Blocked</div>
+      <div class="metric-value" id="metricBlocked">–</div>
+      <div class="metric-sub" id="metricBlockedPct">–% block rate</div>
+    </div>
+    <div class="metric-card card-rate">
+      <div class="metric-label">Req / Minute</div>
+      <div class="metric-value" id="metricRPM">–</div>
+      <div class="metric-sub">60s sliding window</div>
+    </div>
+    <div class="metric-card card-rps">
+      <div class="metric-label">Req / Second</div>
+      <div class="metric-value" id="metricRPS">–</div>
+      <div class="metric-sub">instantaneous</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Request Timeline</span>
+        <span class="chart-badge">30s window</span>
+      </div>
+      <div class="chart-container">
+        <canvas id="timelineChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Allow / Block Ratio</span>
+        <span class="chart-badge">live</span>
+      </div>
+      <div class="donut-container">
+        <canvas id="ratioChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom -->
+  <div class="bottom-grid">
+    <div class="table-card">
+      <div class="chart-header">
+        <span class="chart-title">Endpoints</span>
+        <span class="chart-badge">activity</span>
+      </div>
+      <div class="endpoint-list" id="endpointList">
+        <div style="color:var(--muted);font-size:12px;">Waiting for traffic...</div>
+      </div>
+    </div>
+
+    <div class="sim-card">
+      <div class="chart-header">
+        <span class="chart-title">Request Simulator</span>
+        <span class="chart-badge">test</span>
+      </div>
+      <div class="sim-controls">
+        <div class="sim-row">
+          <span class="sim-label">Endpoint</span>
+          <select class="sim-select" id="simEndpoint">
+            <option value="/api/data">GET /api/data (100 cap)</option>
+            <option value="/api/expensive">GET /api/expensive (20 cap)</option>
+            <option value="/api/premium">GET /api/premium (500 cap)</option>
+          </select>
+        </div>
+        <div class="sim-row">
+          <span class="sim-label">Count</span>
+          <input type="number" class="sim-input" id="simCount" value="20" min="1" max="200">
+        </div>
+        <div class="sim-row">
+          <span class="sim-label">Delay (ms)</span>
+          <input type="number" class="sim-input" id="simDelay" value="50" min="0" max="2000">
+        </div>
+        <button class="btn btn-primary" id="simBtn" onclick="runSimulation()">▶ Run Simulation</button>
+      </div>
+      <div class="sim-output" id="simOutput">Results will appear here...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Chart setup ──────────────────────────────────────────────────────────────
+const ACCENT = '#00ff9d';
+const ACCENT2 = '#ff4060';
+const ACCENT3 = '#7c6af7';
+const MUTED = '#1e1e2e';
+
+Chart.defaults.color = '#555570';
+Chart.defaults.font.family = "'JetBrains Mono', monospace";
+
+// Timeline Chart
+const tlCtx = document.getElementById('timelineChart').getContext('2d');
+const timelineChart = new Chart(tlCtx, {
+  type: 'bar',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Allowed',
+        data: [],
+        backgroundColor: 'rgba(0,255,157,0.7)',
+        borderRadius: 2,
+        borderSkipped: false,
+      },
+      {
+        label: 'Blocked',
+        data: [],
+        backgroundColor: 'rgba(255,64,96,0.7)',
+        borderRadius: 2,
+        borderSkipped: false,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { stacked: true, grid: { color: MUTED }, ticks: { font: { size: 10 } } },
+      y: { stacked: true, grid: { color: MUTED }, beginAtZero: true, ticks: { precision: 0 } }
+    }
+  }
+});
+
+// Ratio (Doughnut) Chart
+const ratioCtx = document.getElementById('ratioChart').getContext('2d');
+const ratioChart = new Chart(ratioCtx, {
+  type: 'doughnut',
+  data: {
+    labels: ['Allowed', 'Blocked'],
+    datasets: [{
+      data: [1, 0],
+      backgroundColor: [ACCENT, ACCENT2],
+      borderColor: '#13131f',
+      borderWidth: 3,
+      hoverOffset: 4,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '72%',
+    animation: { duration: 400 },
+    plugins: {
+      legend: {
+        position: 'bottom',
+        labels: { padding: 16, font: { size: 11 }, boxWidth: 10, borderRadius: 2 }
+      }
+    }
+  }
+});
+
+// ── Data fetching ────────────────────────────────────────────────────────────
+let isOnline = false;
+
+async function fetchMetrics() {
+  try {
+    const [metricsRes, timelineRes] = await Promise.all([
+      fetch('/admin/metrics'),
+      fetch('/admin/timeline?seconds=30')
+    ]);
+
+    if (!metricsRes.ok) throw new Error('API error');
+
+    const metrics = await metricsRes.json();
+    const timeline = await timelineRes.json();
+
+    updateMetrics(metrics);
+    updateTimeline(timeline);
+    updateEndpoints(metrics.endpoints || {});
+    setOnline(true);
+
+  } catch (err) {
+    setOnline(false);
+  }
+}
+
+function setOnline(online) {
+  isOnline = online;
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'status-dot' + (online ? '' : ' offline');
+  text.textContent = online ? 'LIVE' : 'OFFLINE';
+  if (online) {
+    document.getElementById('lastUpdate').textContent =
+      'updated ' + new Date().toLocaleTimeString();
+  }
+}
+
+function fmt(n) {
+  if (n === undefined || n === null) return '–';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return n.toString();
+}
+
+function updateMetrics(data) {
+  const g = data.global || {};
+  const w = data.window || {};
+
+  const total = g.totalRequests || 1;
+  const allowed = g.allowedRequests || 0;
+  const blocked = g.blockedRequests || 0;
+
+  document.getElementById('metricAllowed').textContent = fmt(allowed);
+  document.getElementById('metricBlocked').textContent = fmt(blocked);
+  document.getElementById('metricRPM').textContent = fmt(w.requestsPerMinute || 0);
+  document.getElementById('metricRPS').textContent = fmt(w.requestsPerSecond || 0);
+
+  const passPct = total > 0 ? ((allowed / total) * 100).toFixed(1) : '0.0';
+  const blockPct = total > 0 ? ((blocked / total) * 100).toFixed(1) : '0.0';
+  document.getElementById('metricAllowedPct').textContent = `${passPct}% pass rate`;
+  document.getElementById('metricBlockedPct').textContent = `${blockPct}% block rate`;
+
+  // Ratio chart
+  ratioChart.data.datasets[0].data = [Math.max(allowed, 0), Math.max(blocked, 0)];
+  ratioChart.update('none');
+}
+
+function updateTimeline(data) {
+  if (!data || !data.length) return;
+  const labels = data.map(d => d.label);
+  const allowed = data.map(d => Math.max(0, (d.total || 0) - (d.blocked || 0)));
+  const blocked = data.map(d => d.blocked || 0);
+
+  timelineChart.data.labels = labels;
+  timelineChart.data.datasets[0].data = allowed;
+  timelineChart.data.datasets[1].data = blocked;
+  timelineChart.update('none');
+}
+
+function updateEndpoints(endpoints) {
+  const list = document.getElementById('endpointList');
+  const entries = Object.entries(endpoints);
+
+  if (!entries.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px;">No endpoint data yet.</div>';
+    return;
+  }
+
+  const maxTotal = Math.max(...entries.map(([, v]) => parseInt(v.total) || 0), 1);
+
+  list.innerHTML = entries.map(([name, stats]) => {
+    const total = parseInt(stats.total) || 0;
+    const blocked = parseInt(stats.blocked) || 0;
+    const pct = Math.round((total / maxTotal) * 100);
+    return `
+      <div class="endpoint-row">
+        <span class="endpoint-name">${name}</span>
+        <div class="endpoint-bar-wrap">
+          <div class="endpoint-bar" style="width:${pct}%"></div>
+        </div>
+        <span class="endpoint-count">${fmt(total)} reqs</span>
+      </div>`;
+  }).join('');
+}
+
+// ── Simulator ────────────────────────────────────────────────────────────────
+async function runSimulation() {
+  const btn = document.getElementById('simBtn');
+  const output = document.getElementById('simOutput');
+  const endpoint = document.getElementById('simEndpoint').value;
+  const count = Math.min(parseInt(document.getElementById('simCount').value) || 10, 200);
+  const delay = parseInt(document.getElementById('simDelay').value) || 50;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+  output.innerHTML = `<span style="color:var(--muted)">Starting ${count} requests to ${endpoint}...</span>\n`;
+
+  let allowed = 0, blocked = 0;
+
+  for (let i = 0; i < count; i++) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: { 'X-Forwarded-For': '10.0.0.1' }
+      });
+      const isBlocked = res.status === 429;
+      if (isBlocked) blocked++; else allowed++;
+
+      const remaining = res.headers.get('X-RateLimit-Remaining') || '?';
+      const cls = isBlocked ? 'log-blocked' : 'log-allowed';
+      const icon = isBlocked ? '🚫' : '✅';
+      output.innerHTML += `<span class="${cls}">${icon} #${i+1} → ${res.status} | remaining: ${remaining}</span>\n`;
+      output.scrollTop = output.scrollHeight;
+
+    } catch (err) {
+      output.innerHTML += `<span class="log-error">⚠️ #${i+1} → error: ${err.message}</span>\n`;
+    }
+
+    if (delay > 0) await new Promise(r => setTimeout(r, delay));
+  }
+
+  output.innerHTML += `\n<span style="color:var(--text);font-weight:500">── Done: ${allowed} allowed, ${blocked} blocked ──</span>`;
+  output.scrollTop = output.scrollHeight;
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run Simulation';
+  fetchMetrics(); // Refresh stats
+}
+
+// ── Poll ─────────────────────────────────────────────────────────────────────
+fetchMetrics();
+setInterval(fetchMetrics, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+# ── ConfigMap ──────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rate-limiter-config
+  namespace: default
+data:
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  DEFAULT_BUCKET_CAPACITY: "100"
+  DEFAULT_REFILL_RATE: "10"
+  DEFAULT_REFILL_INTERVAL: "1000"
+  DEFAULT_COST_PER_REQUEST: "1"
+  METRICS_WINDOW: "60000"
+
+---
+
+# ── Service (Load Balancer) ────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: rate-limiter-service
+  namespace: default
+  labels:
+    app: rate-limiter
+spec:
+  selector:
+    app: rate-limiter
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+  type: LoadBalancer  # Use NodePort for local k8s (minikube)
+
+---
+
+# ── Horizontal Pod Autoscaler ──────────────────────────────────────────────────
+# Scales from 3 to 10 pods based on CPU load
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rate-limiter-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rate-limiter
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+
+# ── Redis StatefulSet ──────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: default
+spec:
+  serviceName: "redis"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --maxmemory
+            - "256mb"
+            - --maxmemory-policy
+            - "allkeys-lru"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+
+---
+
+# ── Redis Service ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: default
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP  # Only accessible within cluster

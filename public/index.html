@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rate Limiter Dashboard</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;600;700&display=swap');
+    :root { --bg:#0a0a0f;--surface:#111118;--border:#1e1e2e;--green:#00ff88;--red:#ff4466;--yellow:#ffd700;--blue:#4488ff;--text:#e0e0f0;--muted:#666688; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;min-height:100vh;padding:24px}
+    header{display:flex;align-items:center;gap:16px;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border)}
+    .logo{width:42px;height:42px;background:linear-gradient(135deg,var(--green),var(--blue));border-radius:10px;display:grid;place-items:center;font-size:20px}
+    h1{font-size:20px;font-weight:700}
+    h1 span{color:var(--muted);font-weight:400;font-size:14px;margin-left:8px}
+    .status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite;margin-left:auto}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+    .card-label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
+    .card-value{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace}
+    .card-value.green{color:var(--green)}.card-value.red{color:var(--red)}.card-value.yellow{color:var(--yellow)}.card-value.blue{color:var(--blue)}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+    .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+    .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:16px}
+    .bucket{margin-bottom:12px}
+    .bucket-header{display:flex;justify-content:space-between;margin-bottom:5px;font-size:12px}
+    .bucket-key{color:var(--blue);font-family:'JetBrains Mono',monospace;font-size:11px}
+    .bucket-tokens{color:var(--muted)}
+    .bar-track{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+    .bar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+    .log{font-family:'JetBrains Mono',monospace;font-size:11px;max-height:240px;overflow-y:auto}
+    .log-entry{padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center}
+    .log-status{width:32px;text-align:center;border-radius:4px;padding:1px 4px;font-size:10px;font-weight:700}
+    .s200{background:rgba(0,255,136,.15);color:var(--green)}.s429{background:rgba(255,68,102,.15);color:var(--red)}.serr{background:rgba(100,100,100,.2);color:var(--muted)}
+    .log-path{flex:1;color:var(--text)}.log-ip{color:var(--muted)}.log-time{color:var(--muted);font-size:10px}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px}
+    button{padding:9px 18px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Grotesk',sans-serif;font-size:13px;cursor:pointer;transition:.15s}
+    button:hover{border-color:var(--green);color:var(--green)}
+    button.active{background:var(--green);color:#000;border-color:var(--green);font-weight:700}
+    select{padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Space Grotesk',sans-serif;font-size:13px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">&#9889;</div>
+    <div><h1>Rate Limiter Dashboard <span>Redis Token Bucket</span></h1></div>
+    <div class="status-dot" id="statusDot" title="Redis status"></div>
+  </header>
+
+  <div class="controls">
+    <select id="endpoint">
+      <option value="/api/public">GET /api/public (100 req/min)</option>
+      <option value="/api/strict">/api/strict POST (5 req/min)</option>
+      <option value="/api/premium">/api/premium (API key)</option>
+    </select>
+    <button onclick="fireRequest()">Fire 1 Request</button>
+    <button onclick="fireBurst(20)">Burst x20</button>
+    <button id="btnFlood" onclick="toggleFlood()">Auto Flood</button>
+    <button onclick="resetStats()">Reset Stats</button>
+  </div>
+
+  <div class="grid">
+    <div class="card"><div class="card-label">Total Requests</div><div class="card-value blue" id="statTotal">0</div></div>
+    <div class="card"><div class="card-label">Allowed (200)</div><div class="card-value green" id="statAllowed">0</div></div>
+    <div class="card"><div class="card-label">Rate Limited (429)</div><div class="card-value red" id="statLimited">0</div></div>
+    <div class="card"><div class="card-label">Accept Rate</div><div class="card-value yellow" id="statRate">-</div></div>
+    <div class="card"><div class="card-label">Avg Latency</div><div class="card-value" id="statLatency">-</div></div>
+    <div class="card"><div class="card-label">Req / Sec</div><div class="card-value blue" id="statRps">-</div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <h2>Active Buckets</h2>
+      <div id="bucketList"><p style="color:var(--muted);font-size:12px">No active buckets yet</p></div>
+    </div>
+    <div class="panel">
+      <h2>Request Log</h2>
+      <div class="log" id="requestLog"></div>
+    </div>
+  </div>
+
+  <script>
+    const stats = { total:0, allowed:0, limited:0, latencies:[], rpsWindow:[] };
+    let flooding = false, floodInterval = null;
+
+    async function fireRequest(path) {
+      const endpoint = path || document.getElementById('endpoint').value;
+      const start = performance.now();
+      const isPost = endpoint.includes('strict');
+      const apiKey = endpoint.includes('premium') ? 'demo-key-123' : null;
+      try {
+        const res = await fetch(endpoint, {
+          method: isPost ? 'POST' : 'GET',
+          headers: apiKey ? { 'X-Api-Key': apiKey } : {}
+        });
+        const latency = performance.now() - start;
+        const remaining = res.headers.get('X-RateLimit-Remaining') || '?';
+        const limit = res.headers.get('X-RateLimit-Limit') || '?';
+        stats.total++; stats.latencies.push(latency); stats.rpsWindow.push(Date.now());
+        if (res.status === 200) stats.allowed++;
+        else if (res.status === 429) stats.limited++;
+        addLog(res.status, endpoint, remaining, limit, latency.toFixed(0));
+        updateStats();
+      } catch(e) { addLog('ERR', endpoint, '-', '-', '-'); }
+    }
+
+    function fireBurst(n) {
+      const endpoint = document.getElementById('endpoint').value;
+      for (let i = 0; i < n; i++) fireRequest(endpoint);
+    }
+
+    function toggleFlood() {
+      const btn = document.getElementById('btnFlood');
+      if (flooding) {
+        clearInterval(floodInterval); flooding = false;
+        btn.classList.remove('active'); btn.textContent = 'Auto Flood';
+      } else {
+        flooding = true; btn.classList.add('active'); btn.textContent = 'Stop Flood';
+        floodInterval = setInterval(() => fireBurst(5), 100);
+      }
+    }
+
+    function addLog(status, path, remaining, limit, latency) {
+      const log = document.getElementById('requestLog');
+      const cls = status === 200 ? 's200' : status === 429 ? 's429' : 'serr';
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+      el.innerHTML = `<span class="log-status ${cls}">${status}</span><span class="log-path">${path}</span><span class="log-ip">${remaining}/${limit}</span><span class="log-time">${latency}ms</span>`;
+      log.prepend(el);
+      if (log.children.length > 60) log.lastChild.remove();
+    }
+
+    function updateStats() {
+      const { total, allowed, limited, latencies, rpsWindow } = stats;
+      document.getElementById('statTotal').textContent = total.toLocaleString();
+      document.getElementById('statAllowed').textContent = allowed.toLocaleString();
+      document.getElementById('statLimited').textContent = limited.toLocaleString();
+      document.getElementById('statRate').textContent = total ? ((allowed/total)*100).toFixed(1)+'%' : '-';
+      if (latencies.length) {
+        const avg = latencies.reduce((a,b)=>a+b,0)/latencies.length;
+        document.getElementById('statLatency').textContent = avg.toFixed(1)+'ms';
+      }
+      const now = Date.now();
+      document.getElementById('statRps').textContent = rpsWindow.filter(t=>now-t<1000).length;
+    }
+
+    async function fetchBuckets() {
+      try {
+        const data = await fetch('/api/stats').then(r=>r.json());
+        const container = document.getElementById('bucketList');
+        if (!data.buckets.length) { container.innerHTML = '<p style="color:var(--muted);font-size:12px">No active buckets</p>'; return; }
+        container.innerHTML = data.buckets.slice(0,8).map(b => {
+          const tokens = parseFloat(b.tokens||0);
+          const cap = b.key.includes('login') ? 5 : b.key.includes('apikey') ? 500 : 100;
+          const pct = Math.min(100,(tokens/cap)*100);
+          const color = pct>60?'#00ff88':pct>20?'#ffd700':'#ff4466';
+          return `<div class="bucket"><div class="bucket-header"><span class="bucket-key">${b.key.slice(0,32)}</span><span class="bucket-tokens">${Math.floor(tokens)}/${cap}</span></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+        }).join('');
+      } catch {}
+    }
+
+    async function checkRedis() {
+      try {
+        const data = await fetch('/api/status').then(r=>r.json());
+        const dot = document.getElementById('statusDot');
+        const ok = data.redis === 'connected';
+        dot.style.background = ok ? 'var(--green)' : 'var(--red)';
+        dot.style.boxShadow = `0 0 8px ${ok ? 'var(--green)' : 'var(--red)'}`;
+      } catch {}
+    }
+
+    checkRedis();
+    setInterval(checkRedis, 5000);
+    setInterval(fetchBuckets, 1500);
+  </script>
+</body>
+</html>
